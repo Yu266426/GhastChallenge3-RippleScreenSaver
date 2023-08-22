@@ -1,8 +1,6 @@
+import random
+
 import pygame
-
-
-def clamp_colour(value: float) -> int:
-	return int(pygame.math.clamp(value, 0.0, 255.0))
 
 
 class RippleGrid:
@@ -35,9 +33,6 @@ class RippleGrid:
 	def update(self):
 		self.next = [[0 for _ in range(self.grid_size[0])] for _ in range(self.grid_size[1])]
 
-		max_value = 0
-		min_value = float("INF")
-
 		for row, grid_row in enumerate(self.grid):
 			for col, tile in enumerate(grid_row):
 				if row == self.grid_size[1] - 1:
@@ -58,34 +53,80 @@ class RippleGrid:
 				previous = self.previous[row][col]
 
 				self.next[row][col] = (2 * (flow * self.flow_factor + tile) / (self.flow_factor + 1) - previous) * self.damping
-				max_value = max(max_value, self.next[row][col])
-				min_value = min(min_value, self.next[row][col])
 
 		self.previous = self.grid
 		self.grid = self.next
 
-		print(max_value, min_value)
-
 	def draw(self, surface: pygame.Surface):
 		for row, grid_row in enumerate(self.grid):
 			for col, tile in enumerate(grid_row):
+				colour_factor = pygame.math.clamp(tile / (self.ripple_strength * 6) + 0.5, 0.0, 1.0)
+
 				pygame.draw.rect(
 					surface,
-					[clamp_colour((tile / (self.ripple_strength * 6) + 0.5) * 255) for _ in range(3)],
+					(int(colour_factor * 100), int(colour_factor * 100), int(colour_factor * 255)),
 					((col - 1) * self.tile_size, (row - 1) * self.tile_size, self.tile_size, self.tile_size)
 				)
 
 
+class Timer:
+	def __init__(self, cooldown: float, start_done: bool, repeating: bool):
+		self._cooldown = cooldown
+		self._repeating = repeating
+
+		self._time = 0 if start_done else cooldown
+
+		self._is_done = start_done
+		self._is_just_done = start_done
+
+	def set_cooldown(self, cooldown: float):
+		self._cooldown = cooldown
+
+	def tick(self, delta: float = 1 / 60):
+		self._time -= delta
+
+		if self._repeating:
+			self._is_done = False
+			self._is_just_done = False
+
+			if self._time < 0:
+				self._time += self._cooldown
+				self._is_done = True
+				self._is_just_done = True
+		else:
+			if self._time < 0:
+				if self._is_done:
+					self._is_just_done = False
+				else:
+					self._is_done = True
+					self._is_just_done = True
+
+				self._time = 0
+
+	def start(self):
+		self._time = self._cooldown
+		self._is_done = False
+		self._is_just_done = False
+
+	def done(self):
+		return self._is_done
+
+	def just_done(self):
+		return self._is_just_done
+
+
 pygame.init()
 
-screen = pygame.display.set_mode((400, 400), vsync=1)
+screen = pygame.display.set_mode((400, 400), flags=0, vsync=1)
 clock = pygame.time.Clock()
 
-ripple_grid = RippleGrid((400, 400), 133, 1, 0.99)
+ripple_grid = RippleGrid(screen.get_size(), 133, 1, 0.97)
+
+ripple_timer = Timer(random.uniform(1.5, 2.5), True, True)
 
 running = True
 while running:
-	delta = clock.tick() / 1000
+	delta = clock.tick(30) / 1000
 	pygame.display.set_caption(str(round(clock.get_fps())))
 
 	mouse_pos = pygame.mouse.get_pos()
@@ -99,13 +140,12 @@ while running:
 			if event.key == pygame.K_ESCAPE:
 				running = False
 
-			if event.key == pygame.K_SPACE:
-				ripple_grid.add_ripple(mouse_pos, 4)
+	ripple_timer.tick(delta)
 
-	# if keys_pressed[pygame.K_SPACE]:
-	# 	spawn_pos = int(mouse_pos[0] / ripple_grid.tile_size), int(mouse_pos[1] / ripple_grid.tile_size)
-	# 	radius = 1
-	#
+	if ripple_timer.just_done():
+		for _ in range(random.randint(1, 4)):
+			ripple_grid.add_ripple((random.uniform(50, screen.get_width() - 50), random.uniform(50, screen.get_height() - 50)), random.randint(3, 6))
+		ripple_timer.set_cooldown(random.uniform(1.5, 2.5))
 
 	ripple_grid.update()
 
